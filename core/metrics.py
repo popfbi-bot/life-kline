@@ -176,16 +176,18 @@ def compute_stats(days: list[Day]) -> Stats:
 
 
 def suspension_gaps(days: list[Day]) -> list[Date]:
-    """列出区间内没有记录的日子（停牌）。首尾之间的空洞逐一列出。"""
+    """列出区间内没有记录的日子（停牌）。
+
+    区间与 compute_stats 用同一个口径：文件里最早一行到最后一行。
+    末尾的停牌日也算 —— 否则写了「当天停牌」却被报成「一天没停牌」。
+    """
     if not days:
         return []
     recorded = {d.date for d in days if not d.suspended}
-    ordered = sorted(recorded)
-    if not ordered:
-        return []
+    ordered = sorted(d.date for d in days)
+    first, last = ordered[0], ordered[-1]
     out = []
-    cursor = ordered[0]
-    last = ordered[-1]
+    cursor = first
     while cursor <= last:
         if cursor not in recorded:
             out.append(cursor)

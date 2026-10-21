@@ -113,9 +113,15 @@ def _svg(input_: RenderInput) -> str:
     def y_of(v: float) -> float:
         return pad_t + price_h - (v - lo) / span * price_h
 
-    n = len(candles)
-    slot = (width - pad_l - pad_r) / n
+    # 缺口占位：中间缺记录的日子在图上多占一点宽度，让「缺了很久」看得出来。
+    # 不按日历等比（那样密集记录会被压成线），而是按缺口长度分档。
+    offsets = _slot_offsets(candles)
+    total_slots = offsets[-1] + 1
+    slot = (width - pad_l - pad_r) / total_slots
     body_w = max(2.0, min(slot * 0.62, 26.0))
+
+    def cx_of(idx: int) -> float:
+        return pad_l + slot * (offsets[idx] + 0.5)
 
     parts: list[str] = []
     # 网格：mask 模式不画刻度数字，仅保留极淡的水平参考线
@@ -129,7 +135,7 @@ def _svg(input_: RenderInput) -> str:
     max_vol = max((c.volume or 0) for c in candles) or 1
 
     for idx, c in enumerate(candles):
-        cx = pad_l + slot * (idx + 0.5)
+        cx = cx_of(idx)
         rising = c.close >= c.open
         color = PALETTE["up"] if rising else PALETTE["down"]
         label = f"{c.key} 开{c.open:g} 高{c.high:g} 低{c.low:g} 收{c.close:g}"
@@ -163,7 +169,7 @@ def _svg(input_: RenderInput) -> str:
     for idx, value in enumerate(ma):
         if value is None:
             continue
-        cx = pad_l + slot * (idx + 0.5)
+        cx = cx_of(idx)
         seg.append(f"{cx:.1f},{y_of(value):.1f}")
     if seg:
         parts.append(
@@ -171,18 +177,28 @@ def _svg(input_: RenderInput) -> str:
             f'stroke-width="1.4" opacity="0.85" stroke-linejoin="round"/>'
         )
 
-    # 停牌：图上留空白间隔（按日期比例定位，和 K 线等距）
+    # 停牌：在两根相邻 K 线之间画虚线，标出「这段日子里缺了记录」。
+    # 位置必须跟着 K 线的槽位走。早先按日历比例算 x 坐标，而 K 线是等距排列的，
+    # 结果虚线落在两根柱子中间偏左/偏右的地方，读者会以为缺口在另一个位置。
     gap_marks = [d for d in input_.gap_dates if candles[0].start <= d <= candles[-1].end]
     if gap_marks:
+        gap_slots: set[int] = set()
         for d in gap_marks:
-            # 按日期比例大致定位到空白处
-            total_days = (candles[-1].end - candles[0].start).days or 1
-            ratio = (d - candles[0].start).days / total_days
-            x = pad_l + ratio * (width - pad_l - pad_r)
-            title_tag = "" if mask else f"<title>停牌 {d.isoformat()}</title>"
+            # 缺口夹在「最后一个比它早的记录」(idx) 与下一根之间
+            idx = 0
+            for i, c in enumerate(candles):
+                if c.start < d:
+                    idx = i
+            gap_slots.add(idx)
+        for idx in gap_slots:
+            if idx + 1 >= len(candles):
+                continue
+            # 正好落在两根柱子中间的空档里
+            x = pad_l + slot * (offsets[idx] + 0.5 + (offsets[idx + 1] - offsets[idx]) / 2)
+            title_tag = "" if mask else f"<title>停牌（那天没记录）</title>"
             parts.append(
-                f'<line x1="{x:.1f}" y1="{pad_t}" x2="{x:.1f}" y2="{pad_t + price_h}" '
-                f'stroke="{PALETTE["muted"]}" stroke-width="0.8" stroke-dasharray="2 4" opacity="0.5"/>{title_tag}'
+                f'<g>{title_tag}<line x1="{x:.1f}" y1="{pad_t}" x2="{x:.1f}" y2="{pad_t + price_h}" '
+                f'stroke="{PALETTE["muted"]}" stroke-width="6" stroke-dasharray="2 4" opacity="0.28"/></g>'
             )
 
     # 基线（成交量区）
@@ -193,10 +209,10 @@ def _svg(input_: RenderInput) -> str:
 
     # 横轴标签：mask 模式不显示日期数值
     if not mask:
-        for idx in {0, n // 2, n - 1}:
+        for idx in {0, len(candles) // 2, len(candles) - 1}:
             c = candles[idx]
-            cx = pad_l + slot * (idx + 0.5)
-            anchor = "start" if idx == 0 else ("end" if idx == n - 1 else "middle")
+            cx = cx_of(idx)
+            anchor = "start" if idx == 0 else ("end" if idx == len(candles) - 1 else "middle")
             parts.append(
                 f'<text x="{cx:.1f}" y="{vol_top + vol_h + 18}" font-size="11" fill="{PALETTE["muted"]}" '
                 f'text-anchor="{anchor}">{_esc(c.key)}</text>'
@@ -204,7 +220,7 @@ def _svg(input_: RenderInput) -> str:
 
     return (
         f'<svg viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="{"K 线形状图" if mask else "人生 K 线图"}">' + "".join(parts) + "</svg>"
+        f'aria-label="{"K 线形状图" if mask else "自评状态 K 线图"}">' + "".join(parts) + "</svg>"
     )
 
 
@@ -230,7 +246,7 @@ def render(input_: RenderInput) -> str:
     legend = (
         f'<div class="legend"><span>红 = 状态<b>上升</b>的日子</span>'
         f'<span>绿 = 状态<b>下降</b>的日子</span>'
-        f'<span>虚线 = <b>停牌</b>（那天没记录）</span></div>'
+        f'<span>虚线 = <b>停牌</b>（那段日子没记录）</span></div>'
     )
     if mask:
         legend = f'<div class="legend"><span>{_esc(MASK_WATERMARK)}</span></div>'
@@ -240,7 +256,7 @@ def render(input_: RenderInput) -> str:
 
     watermark = f'<p class="watermark">{_esc(MASK_WATERMARK)}</p>' if mask else ""
 
-    title = "人生 K 线（形状）" if mask else "人生 K 线"
+    title = "状态 K 线（形状）" if mask else "状态 K 线"
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -266,3 +282,32 @@ def render(input_: RenderInput) -> str:
 </body>
 </html>
 """
+
+
+def _slot_offsets(candles) -> list[float]:
+    """每根 K 线的槽位序号。中间缺的日历日按长度分档占位，让长缺口更宽。
+
+    分档而不是等比：等比会让密集记录被压成细线。这里只保证
+    「缺得久」比「缺一天」宽，且宽得有上限。
+    """
+    offsets = [0.0]
+    for prev, cur in zip(candles, candles[1:]):
+        missing = max(0, (cur.start - prev.end).days - 1)
+        offsets.append(offsets[-1] + 1 + _gap_width(missing))
+    return offsets
+
+
+def _gap_width(missing: int) -> float:
+    """缺口在图上额外占的宽度：缺一天略窄，缺一周更宽，一个月以上封顶。
+
+    封顶是不让一段长停牌把整张图挤扁 —— 缺口要看得见，不能变成主角。
+    """
+    if missing <= 0:
+        return 0.0
+    if missing == 1:
+        return 0.3
+    if missing < 7:
+        return 0.6
+    if missing < 30:
+        return 1.1
+    return 1.6

@@ -169,8 +169,8 @@ def cmd_stats(args) -> int:
 
     days = slice_days(days, _parse_opt_date(args.start, "--from"), _parse_opt_date(args.end, "--to"))
     if not days:
-        print("这个区间里没有数据。", file=sys.stderr)
-        return 2
+        print("这个区间里没有数据。")
+        return 0
 
     stats = compute_stats(days)
     print(narrate.render_narrative(stats, period="year"))
@@ -191,6 +191,10 @@ def cmd_gaps(args) -> int:
         print(err.render(), file=sys.stderr)
         return 2
 
+    if not days:
+        print("还没有任何记录。")
+        return 0
+
     gaps = suspension_gaps(days)
     stats = compute_stats(days)
     recorded = stats.recorded_days
@@ -205,8 +209,9 @@ def cmd_gaps(args) -> int:
         return 0
 
     bar_width = 48
-    filled = round(stats.suspension_rate * bar_width)
-    print("停牌 █" + "█" * filled + "░" * (bar_width - filled) + " 100%")
+    filled = min(bar_width, round(stats.suspension_rate * bar_width))
+    bar = "█" * filled + "░" * (bar_width - filled)
+    print(f"停牌 {bar} {_pct(stats.suspension_rate)}   有记录 {_pct(1 - stats.suspension_rate)}")
 
     # 按连续停牌段聚合展示，比逐日罗列好读
     runs: list[list[Date]] = []
@@ -238,14 +243,12 @@ def cmd_chart(args) -> int:
         return 2
 
     if not days:
-        print("数据文件是空的，先 life-kline add。", file=sys.stderr)
-        return 2
+        print("数据文件是空的，先 life-kline add；这次先生成一张空图。")
 
     period = args.period
     candles = aggregate(days, period)
     if not candles:
-        print("这个区间全是停牌，画不出 K 线。", file=sys.stderr)
-        return 2
+        print("这个区间全是停牌，画不出 K 线；这次先生成一张空图。")
 
     stats = compute_stats(days)
     gaps = suspension_gaps(days)

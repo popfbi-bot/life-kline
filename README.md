@@ -117,6 +117,13 @@ python3 -m unittest discover -s tests -t .
 
 零依赖，不需要装任何东西。
 
+想亲眼确认「没有联网代码」不是一句空话，可以跑一次实证脚本：
+它会往 `core/metrics.py` 里临时注入 `import socket`，确认测试真的会变红，然后恢复原样。
+
+```bash
+python3 tools/red_green_check.py
+```
+
 设计文档见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，里面有核心映射表、三条红线的由来、
 聚合规则、7 个指标的定义，以及为什么职责边界不能破。
 
