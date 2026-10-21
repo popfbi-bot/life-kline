@@ -25,10 +25,11 @@ def sha256(path: Path) -> str:
 
 
 def snapshot(root: Path) -> dict[str, str]:
+    """目录快照，键统一成 POSIX 风格（Windows 上 str(Path) 会给反斜杠）。"""
     out = {}
     for path in sorted(root.rglob("*")):
         if path.is_file():
-            out[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+            out[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return out
 
 
@@ -165,6 +166,15 @@ class TestInitAndAdd(unittest.TestCase):
             text = data.read_text(encoding="utf-8")
             self.assertIn("2026-10-21,1,2,0,1", text)
             self.assertEqual(text.count("2026-10-21"), 1)
+
+    def test_interactive_add_gets_eof_instead_of_hanging(self):
+        """`add` 不带参数会走 `_ask()` → `input()`；测试里必须看到 EOF 而不是等终端。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "life.csv"
+            code, _, _ = run_cli("add", "--date", "2026-04-21", path=data)
+            # 分数全空 = 停牌，不算错，但要确认它真的返回了
+            self.assertEqual(code, 0)
+            self.assertTrue(data.exists())
 
     def test_no_temp_files_left_behind(self):
         with tempfile.TemporaryDirectory() as tmp:
