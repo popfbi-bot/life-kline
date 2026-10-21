@@ -6,6 +6,7 @@ import re
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -153,6 +154,32 @@ class TestNoPredictiveVocabulary(unittest.TestCase):
             self.assertEqual(code, 0, err)
             offenders = [w for w in PREDICTIVE if w in out]
             self.assertEqual(offenders, [], f"{args} 输出出现红线词汇：{offenders}")
+
+    def test_streak_span_matches_length_in_stats_output(self):
+        """user-visible：连阳那一行的日期跨度必须等于连阳天数。
+
+        通用毛病是「跨度与根数不符」：3 根阳线报成 10 天跨度。
+
+        fixtures/full.csv 手算：close 6 → 7 → 9 → 10，第一根阳线 10-23（收 7），
+        之后 10-29（收 9）、10-31（收 10）——连阳 3 根；10-24~10-30 是停牌。
+        """
+        from tests.helpers import run_cli
+
+        code, out, err = run_cli("stats", path=CSV)
+        self.assertEqual(code, 0, err)
+        line = next(l for l in out.splitlines() if l.startswith("最长连阳"))
+        self.assertIn("10 月 23 日–10 月 31 日", line)
+        self.assertNotIn("10 月 22 日", line)
+
+        # 手算：3 根阳线（10-23 / 10-29 / 10-31），段内夹了 6 天停牌，
+        # 所以日期跨度 = 3 + 6 = 9 天。旧实现从 10-22 起算，会报成 10 天。
+        out_span = re.search(r"（(\d{1,2}) 月 (\d{1,2}) 日–(\d{1,2}) 月 (\d{1,2}) 日）", line)
+        self.assertIsNotNone(out_span, f"连阳那一行没有日期区间：{line}")
+        sm, sd, em, ed = (int(x) for x in out_span.groups())
+        self.assertEqual((sm, sd), (10, 23), "起点应是第一根阳线 10-23")
+        self.assertEqual((em, ed), (10, 31), "终点应是最后一根阳线 10-31")
+        span_days = (date(2026, em, ed) - date(2026, sm, sd)).days + 1
+        self.assertEqual(span_days, 9, f"3 根阳线 + 6 天停牌 = 9 天跨度，实际 {span_days}")
 
     def test_source_contains_no_predictive_words(self):
         """面向用户的文案里不许出现这些词。

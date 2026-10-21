@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,10 +23,26 @@ from core.metrics import (  # noqa: E402
     streaks,
     volatility,
 )
+from core.model import Day  # noqa: E402
 from core.narrate import build as narrate  # noqa: E402
 from core.store import load  # noqa: E402
 
 CSV = ROOT / "fixtures" / "full.csv"
+
+# 「先跌、后创新高、再跌」——未来高点严格大于当时的滚动峰值。
+# 这是唯一能把「滚动峰值当分母」和「全局最高当分母」区分开的形态：
+# 别的形态下两种实现的答案一样，断言再严也是假绿。
+#   t1 01-01 close 8  滚动峰值 8   dd 0
+#   t2 01-02 close 2  滚动峰值 8   dd = 1 - 2/8 = 0.75   <- 最大，谷底在 01-02
+#   t3 01-03 close 9  滚动峰值 9   dd 0（创了新高，全局最高在这里出现）
+#   t4 01-04 close 4  滚动峰值 9   dd = 1 - 4/9 = 0.5555…
+# 偷看未来的实现会拿全局最高 9 去算 01-02：1 - 2/9 = 0.7778，比 0.75 大，于是报 0.7778。
+ROLLING_PEAK_DAYS = [
+    Day(date=date(2026, 1, 1), open=8, high=8, low=7, close=8),
+    Day(date=date(2026, 1, 2), open=8, high=8, low=2, close=2),
+    Day(date=date(2026, 1, 3), open=2, high=9, low=2, close=9),
+    Day(date=date(2026, 1, 4), open=9, high=9, low=4, close=4),
+]
 
 
 class TestNoForwardLookingMetric(unittest.TestCase):
@@ -83,15 +100,48 @@ class TestNoForwardLookingMetric(unittest.TestCase):
             checked += 1
         self.assertGreater(checked, 5)
 
+    def test_max_drawdown_uses_running_peak_not_global_max(self):
+        """回撤的分母只能是「当时的」滚动峰值，不能是整条序列的最高点。
+
+        期望值是手算的常量，不是「用同一函数算两遍再比较」：
+        01-02 收盘 2，当时的滚动峰值是 01-01 的 8 → 1 - 2/8 = 0.75。
+        如果实现偷看未来拿全局最高 9 当分母，会算出 1 - 2/9 = 0.7778，这条立刻红。
+        """
+        dd, dd_date, peak_date = max_drawdown(ROLLING_PEAK_DAYS)
+        self.assertAlmostEqual(dd, 0.75, places=12)
+        self.assertEqual(dd_date, date(2026, 1, 2))    # 谷底
+        self.assertEqual(peak_date, date(2026, 1, 1))  # 谷底之前的滚动峰值，也是全局最高之前的高点
+
+        # 01-04 那一段：分母 9 是 01-03 创出的新高，1 - 4/9。
+        dd_tail, dd_tail_date, _ = max_drawdown(ROLLING_PEAK_DAYS[:4])
+        self.assertAlmostEqual(dd_tail, 0.75, places=12)
+        self.assertEqual(dd_tail_date, date(2026, 1, 2))
+
+        # 只给到 01-03 时，最大回撤还是 01-02 那一段，不会因为 01-03 的新高被改写
+        dd_prefix, dd_prefix_date, _ = max_drawdown(ROLLING_PEAK_DAYS[:3])
+        self.assertAlmostEqual(dd_prefix, 0.75, places=12)
+        self.assertEqual(dd_prefix_date, date(2026, 1, 2))
+
     def test_max_drawdown_of_prefix_only_uses_past(self):
-        for n, prefix in self.prefixes():
-            dd_partial, date_partial, _ = max_drawdown(prefix)
-            dd_full_running, date_full_running, _ = max_drawdown(self.full[:n])
-            self.assertEqual(dd_partial, dd_full_running)
-            self.assertEqual(date_partial, date_full_running)
-            # 前缀的结果绝不可能是「未来某天」造成的
-            if date_partial is not None:
-                self.assertLessEqual(date_partial, prefix[-1].date)
+        """前缀的每一天都必须有一个前向计算的常量对手：谷底日不晚于前缀末日。
+
+        这里不比 f(x) 与 f(x) 相等，而是钉住三段手算值：
+        01-01 尚无回撤、01-02 就是 0.75、之后不会被后来的新高冲正。
+        """
+        # 哪怕只喂一天，也不许因为「后面还有 9」而冒出一个回撤
+        self.assertEqual(max_drawdown(ROLLING_PEAK_DAYS[:1]), (0.0, None, None))
+        expected = [
+            (2, 0.75, date(2026, 1, 2)),
+            (3, 0.75, date(2026, 1, 2)),
+            (4, 0.75, date(2026, 1, 2)),
+        ]
+        for n, dd_want, date_want in expected:
+            dd, dd_date, peak_date = max_drawdown(ROLLING_PEAK_DAYS[:n])
+            self.assertAlmostEqual(dd, dd_want, places=12, msg=f"前 {n} 天的回撤")
+            self.assertEqual(dd_date, date_want, f"前 {n} 天的回撤谷底日")
+            if dd_date is not None:
+                self.assertLessEqual(dd_date, ROLLING_PEAK_DAYS[n - 1].date)
+                self.assertLess(peak_date, dd_date)  # 峰值必须早于谷底，不可能来自未来
 
     def test_streaks_of_prefix_never_mention_future_dates(self):
         for n, prefix in self.prefixes():

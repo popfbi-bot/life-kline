@@ -18,7 +18,11 @@ from .model import Day, Candle
 
 @dataclass(frozen=True)
 class Segment:
-    """一段连续的阳线/阴线。"""
+    """一段连续的阳线/阴线。
+
+    start / end 都是「真正属于这一段的那根 K 线」的日期：start 是第一根，
+    end 是最后一根，与 length 自洽（跨度 ≤ length，中间只有停牌日）。
+    """
 
     start: Date
     end: Date
@@ -131,7 +135,7 @@ def streaks(days: list[Day]) -> tuple[Segment | None, Segment | None]:
         if direction != run_dir:
             close_run()
             run_dir = direction
-            run_start = prev.date
+            run_start = cur.date  # 第一根阳/阴线自己，不是它参照的前一日
             run_len = 1
         else:
             run_len += 1

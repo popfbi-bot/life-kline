@@ -204,15 +204,15 @@ class TestHandCalculatedMetrics(unittest.TestCase):
         """
         close：7 → 5(阴) → 8(阳) → 6(阴) → 7(阳) → 9(阳) → 10(阳)
               → 3(阴) → 8(阳) → 8(平) → 9(阳) → 10(阳)
-        连阳段：8 单独 1 天；6→7→9 共 3 天（10-22 → 10-29，中间 10-30 停牌但不断）；
-                9→10 共 2 天。最长 = 3。
-        段的 start 记的是「第一根阳线的前一日」，因为涨幅是相对它算的：
-        6→7 的那根阳线在 10-23，但它参照的基准日是 10-22。
+        连阳段：8 单独 1 天；6→7→9 共 3 天（10-23 是第一根阳线，10-29 是第三根，
+                中间隔了 10-30 停牌但不算断）；9→10 共 2 天。最长 = 3。
+        段的 start 是第一根阳线自己的日期，end 是最后一根，与 length 对称；
+        注意不能记成「第一根阳线的前一日」（10-22）：那是 6，是阴线。
         连阴段：全是 1 天。最长 = 1。
         """
         up, down = streaks(self.days)
         self.assertEqual(up.length, 3)
-        self.assertEqual(up.start, date(2026, 10, 22))
+        self.assertEqual(up.start, date(2026, 10, 23))
         self.assertEqual(up.end, date(2026, 10, 31))
         self.assertEqual(down.length, 1)
         self.assertEqual(self.stats.longest_up, up)
