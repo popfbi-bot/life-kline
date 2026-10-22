@@ -41,13 +41,13 @@ def render_narrative(stats: Stats, period: str = "year") -> str:
     span = stats.total_days
     parts.append(f"{scope}你记录了 {stats.recorded_days} 天（共 {span} 天）")
 
-    # 连阳：只有真的连续 2 天以上才值得说。
+    # 连阳：只有真的连续 2 天以上才值得说。区间起点用 first_day，不是 start。
     if stats.longest_up and stats.longest_up.length >= 2:
         seg = stats.longest_up
-        parts.append(f"最长连阳 {seg.length} 天（{_cn_day(seg.start)}–{_cn_day(seg.end)}）")
+        parts.append(f"最长连阳 {seg.length} 天（{_cn_day(seg.first_day)}–{_cn_day(seg.end)}）")
     elif stats.longest_down and stats.longest_down.length >= 2:
         seg = stats.longest_down
-        parts.append(f"没有连阳，最长连阴 {seg.length} 天（{_cn_day(seg.start)}–{_cn_day(seg.end)}）")
+        parts.append(f"没有连阳，最长连阴 {seg.length} 天（{_cn_day(seg.first_day)}–{_cn_day(seg.end)}）")
 
     # 回撤：太小的回撤不值得当成「最大」，说成「几乎没回撤」。
     if stats.max_drawdown >= 0.01:
@@ -70,4 +70,4 @@ def render_narrative(stats: Stats, period: str = "year") -> str:
 def describe_streak(seg, kind: str) -> str:
     if seg is None or seg.length < 2:
         return f"没有连续两天的{'连阳' if kind == 'up' else '连阴'}"
-    return f"最长连{'阳' if kind == 'up' else '阴'} {seg.length} 天（{_cn_day(seg.start)}–{_cn_day(seg.end)}）"
+    return f"最长连{'阳' if kind == 'up' else '阴'} {seg.length} 天（{_cn_day(seg.first_day)}–{_cn_day(seg.end)}）"

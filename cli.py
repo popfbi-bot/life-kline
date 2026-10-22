@@ -290,16 +290,47 @@ def _parse_opt_date(raw: str | None, flag: str) -> Date | None:
         raise SystemExit(f"{flag} 需要 ISO 日期（YYYY-MM-DD），实际是 `{raw}`") from None
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="life-kline", description="每天 30 秒自评，把日子画成一张 K 线图。")
-    parser.add_argument("--version", action="version", version=f"life-kline {VERSION}")
-    parser.add_argument("--path", help="数据文件路径，默认 ~/life-kline.csv")
-    sub = parser.add_subparsers(dest="command")
+class _OncePath(argparse.Action):
+    """同时接受 `life-kline --path a.csv verify` 和 `life-kline verify --path a.csv`。
 
-    p_init = sub.add_parser("init", help="初始化 CSV")
+    顶层和每个子命令各挂了一份 `--path`，两份共用同一个 dest，
+    所以重复写不算冲突，后写的生效（argparse 默认的 last-wins）。
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+
+
+PATH_HELP = "数据文件路径，默认 ~/life-kline.csv；放在子命令前后都行"
+
+# 顶层那份要给 default=None，子命令那份要给 SUPPRESS。反过来会让
+# `--path a.csv verify` 的 a.csv 被子命令的 None 默认值覆盖掉。
+PATH_OPTION = dict(action=_OncePath, dest="path", metavar="CSV", help=PATH_HELP)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    # argparse 只解析「子命令之前」的选项，所以顶层和每个子命令各挂一份 --path，
+    # `life-kline --path a.csv verify` 和 `life-kline verify --path a.csv` 都能跑。
+    # 两份共用 dest，默认值的给法见 PATH_OPTION 上面那段注释。
+    parser = argparse.ArgumentParser(
+        prog="life-kline",
+        description="每天 30 秒自评，把日子画成一张 K 线图。",
+        epilog="提示：--path 写在子命令前后都可以，例如 `life-kline --path a.csv verify` "
+        "或 `life-kline verify --path a.csv`。",
+    )
+    parser.add_argument("--version", action="version", version=f"life-kline {VERSION}")
+    parser.add_argument("--path", default=None, **PATH_OPTION)
+    sub = parser.add_subparsers(dest="command", metavar="<命令>")
+
+    def add_sub(name: str, help_text: str) -> argparse.ArgumentParser:
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("--path", default=argparse.SUPPRESS, **PATH_OPTION)
+        return p
+
+    p_init = add_sub("init", "初始化 CSV")
     p_init.set_defaults(func=cmd_init)
 
-    p_add = sub.add_parser("add", help="记录一天")
+    p_add = add_sub("add", "记录一天")
     p_add.add_argument("--date")
     p_add.add_argument("--open")
     p_add.add_argument("--high")
@@ -311,21 +342,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--force", action="store_true", help="覆盖同一天的记录")
     p_add.set_defaults(func=cmd_add)
 
-    p_chart = sub.add_parser("chart", help="生成单文件 HTML")
+    p_chart = add_sub("chart", "生成单文件 HTML")
     p_chart.add_argument("--period", choices=PERIODS, default="day")
     p_chart.add_argument("--out", default="life.html")
     p_chart.add_argument("--mask", action="store_true", help="分享模式：只留形状，去掉数字")
     p_chart.set_defaults(func=cmd_chart)
 
-    p_stats = sub.add_parser("stats", help="终端输出 7 个指标")
+    p_stats = add_sub("stats", "终端输出 7 个指标")
     p_stats.add_argument("--from", dest="start")
     p_stats.add_argument("--to", dest="end")
     p_stats.set_defaults(func=cmd_stats)
 
-    p_gaps = sub.add_parser("gaps", help="列出停牌日与停牌率")
+    p_gaps = add_sub("gaps", "列出停牌日与停牌率")
     p_gaps.set_defaults(func=cmd_gaps)
 
-    p_verify = sub.add_parser("verify", help="只校验 CSV")
+    p_verify = add_sub("verify", "只校验 CSV")
     p_verify.set_defaults(func=cmd_verify)
 
     return parser

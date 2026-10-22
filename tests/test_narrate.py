@@ -97,5 +97,23 @@ class TestNarrateUsesRealNumbers(unittest.TestCase):
         self.assertNotIn("连阳", text)
 
 
+class TestStreakWindowStartsAtFirstCandle(unittest.TestCase):
+    """连阳区间要从第一根阳线写起，不能把 Segment.start（参照日）当第一天。
+
+    issue #10 的现场：`fixtures/full.csv` 的最长连阳是 3 根
+    （10-23 / 10-29 / 10-31），start 记的是参照日 10-22，
+    以前 narrate 拿 start 当起点，于是输出「10 月 22 日–10 月 31 日」。
+    """
+
+    def test_window_starts_on_first_up_candle(self):
+        from tests.helpers import FIXTURES
+        from core.store import load
+
+        text = narrate(load(FIXTURES / "full.csv"))
+        self.assertIn("最长连阳 3 天", text)
+        self.assertIn("10 月 23 日–10 月 31 日", text)
+        self.assertNotIn("10 月 22 日–10 月 31 日", text)
+
+
 if __name__ == "__main__":
     unittest.main()

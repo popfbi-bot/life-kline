@@ -20,13 +20,34 @@ from .model import Day, Candle
 class Segment:
     """一段连续的阳线/阴线。
 
-    start / end 都是「真正属于这一段的那根 K 线」的日期：start 是第一根，
-    end 是最后一根，与 length 自洽（跨度 ≤ length，中间只有停牌日）。
+    字段口径（被文档和测试反复踩过，写死在这儿）：
+
+    - start：**段内第一根线自己的日期**。涨幅的基准是「上一根有记录日」，
+      但那个基准日不属于这一段，所以不要拿基准日当起点。
+    - end：段内最后一根线自己的日期。
+    - length：段内线的根数，>= 1。
+
+    日期跨度 >= length：段内夹了几天停牌，日历跨度就比根数大几天，
+    一天没停才取等号。别把跨度当成根数写进文案。
     """
 
     start: Date
     end: Date
     length: int
+
+    @property
+    def first_day(self) -> Date:
+        """段内第一根线自己的日期，展示用。
+
+        与 ``start`` 同值，保留这个名字是为了让「展示起点」在调用处一眼可读——
+        历史上 ``start`` 曾指参照日，于是 UI 整体早一天（issue #10）。
+        """
+        return self.start
+
+    @property
+    def span_days(self) -> int:
+        """日历跨度（含首尾）。停牌日也占天数，所以 >= length。"""
+        return (self.end - self.first_day).days + 1
 
 
 @dataclass(frozen=True)

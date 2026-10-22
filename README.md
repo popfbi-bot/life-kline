@@ -42,7 +42,7 @@ life-kline chart --mask --out share.html
 ## 命令
 
 ```bash
-life-kline init                        # 初始化 CSV（默认 ~/life-kline.csv，可 --path 指定）
+life-kline init                        # 初始化 CSV（默认 ~/life-kline.csv）
 life-kline add                         # 交互录入
 life-kline add --date 2026-10-21 --open 5 --high 9 --low 3 --close 8
 life-kline chart --period day|week|month|year --out life.html
@@ -50,6 +50,13 @@ life-kline chart --mask --out share.html
 life-kline stats [--from --to]         # 终端输出 7 个指标
 life-kline gaps                        # 列出停牌日与停牌率
 life-kline verify                      # 只校验 CSV
+```
+
+数据文件默认是 `~/life-kline.csv`。想换一个，`--path` 写在子命令**前后都行**：
+
+```bash
+life-kline --path ~/life.csv verify
+life-kline verify --path ~/life.csv    # 等价
 ```
 
 只用 Python 3.10+，**没有任何第三方依赖**。
